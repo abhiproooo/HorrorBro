@@ -16,15 +16,32 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(thorvg)
 
-set(TVG_SRC ${thorvg_SOURCE_DIR})
+if(NOT thorvg_SOURCE_DIR OR NOT EXISTS "${thorvg_SOURCE_DIR}/src/renderer/tvgGlCanvas.cpp")
+    message(FATAL_ERROR "ThorVG v0.12.0 sources were not populated correctly")
+endif()
 
-file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/thorvg_config)
-file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/thorvg_config/config.h
+set(TVG_SRC "${thorvg_SOURCE_DIR}")
+
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/thorvg_config")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/thorvg_config/config.h"
 "#ifndef THORVG_CONFIG_H\n"
 "#define THORVG_CONFIG_H\n"
 "#define THORVG_VERSION_STRING \"0.12.0\"\n"
 "#define THORVG_GL_RASTER_SUPPORT 1\n"
 "#endif\n")
+
+# GLES 3.0 entry points (glBindVertexArray, glGetUniformBlockIndex,
+# glDrawBuffers, glBlitFramebuffer, ...) are exported by libGLESv3.so, not
+# libGLESv2.so. GLESv3 also contains the complete GLES 2.0 entry point set.
+find_library(GLES_LIBRARY NAMES GLESv3 GLESv2)
+find_library(EGL_LIBRARY NAMES EGL)
+
+if(NOT GLES_LIBRARY)
+    message(FATAL_ERROR "Android OpenGL ES library not found (GLESv3/GLESv2)")
+endif()
+if(NOT EGL_LIBRARY)
+    message(FATAL_ERROR "Android EGL library not found")
+endif()
 
 set(TVG_SOURCES
     ${TVG_SRC}/src/common/tvgBezier.cpp
@@ -74,9 +91,9 @@ target_include_directories(thorvg
 
 target_compile_definitions(thorvg PUBLIC TVG_STATIC)
 target_compile_options(thorvg PRIVATE -fno-exceptions -fno-rtti)
-target_link_libraries(thorvg PUBLIC GLESv2)
+target_link_libraries(thorvg PUBLIC ${GLES_LIBRARY} ${EGL_LIBRARY})
 
 add_library(horrorbro SHARED src/main/cpp/native-lib.cpp)
 
 target_include_directories(horrorbro PRIVATE ${TVG_SRC}/inc)
-target_link_libraries(horrorbro PRIVATE thorvg GLESv2 log android)
+target_link_libraries(horrorbro PRIVATE thorvg ${GLES_LIBRARY} ${EGL_LIBRARY} log android)
