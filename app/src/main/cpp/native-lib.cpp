@@ -31,7 +31,7 @@ void buildTestScene()
 
     auto background = tvg::Shape::gen();
     background->appendRect(0.0f, 0.0f, static_cast<float>(gWidth), static_cast<float>(gHeight), 0.0f, 0.0f);
-    background->fill(16, 16, 20);
+    background->fill(255, 255, 255);
     gCanvas->push(std::move(background));
 
     const float side = std::min(gWidth, gHeight) * 0.5f;
@@ -114,7 +114,7 @@ Java_com_horrorbro_NativeRenderer_nativeRender(JNIEnv*, jobject)
     if (!gCanvas) return;
 
     glViewport(0, 0, gWidth, gHeight);
-    glClearColor(0.05f, 0.05f, 0.06f, 1.0f);
+    glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
     const auto result = gCanvas->draw();
