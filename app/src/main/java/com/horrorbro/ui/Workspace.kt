@@ -1,6 +1,7 @@
 package com.horrorbro.ui
 
 import android.opengl.GLSurfaceView
+import android.view.MotionEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.Layers
@@ -44,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -103,14 +106,16 @@ private enum class ToolGroup(val label: String) {
 private enum class EditorTool(
     val label: String,
     val group: ToolGroup,
-    val icon: ImageVector
+    val icon: ImageVector,
+    val nativeId: Int
 ) {
-    AddPoint("Add Point", ToolGroup.Draw, Icons.Default.Add),
-    Weld("Weld", ToolGroup.Draw, Icons.Default.Link),
-    Bone("Bone", ToolGroup.Draw, Icons.Default.Polyline),
-    Fill("Fill", ToolGroup.Fill, Icons.Default.FormatColorFill),
-    Stroke("Stroke", ToolGroup.Fill, Icons.Default.Brush),
-    Layer("Layer", ToolGroup.Layer, Icons.Default.Layers)
+    AddPoint("Add Point", ToolGroup.Draw, Icons.Default.Add, 0),
+    Freehand("Freehand", ToolGroup.Draw, Icons.Default.Edit, 1),
+    Weld("Weld", ToolGroup.Draw, Icons.Default.Link, -1),
+    Bone("Bone", ToolGroup.Draw, Icons.Default.Polyline, -1),
+    Fill("Fill", ToolGroup.Fill, Icons.Default.FormatColorFill, -1),
+    Stroke("Stroke", ToolGroup.Fill, Icons.Default.Brush, -1),
+    Layer("Layer", ToolGroup.Layer, Icons.Default.Layers, -1)
 }
 
 @Composable
@@ -119,6 +124,10 @@ fun WorkspaceScreen() {
     var autoFill by rememberSaveable { mutableStateOf(true) }
     var autoStroke by rememberSaveable { mutableStateOf(false) }
     var selectedTool by remember { mutableStateOf(EditorTool.AddPoint) }
+
+    LaunchedEffect(selectedTool) {
+        NativeRenderer.nativeSetTool(selectedTool.nativeId)
+    }
 
     Column(
         modifier = Modifier
@@ -404,6 +413,27 @@ private fun CanvasArea(modifier: Modifier = Modifier) {
             preserveEGLContextOnPause = true
             setRenderer(ThorVGRenderer())
             renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
+            setOnTouchListener { view, event ->
+                val surface = view as GLSurfaceView
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        NativeRenderer.nativeTouchDown(event.x, event.y)
+                        surface.requestRender()
+                        true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        NativeRenderer.nativeTouchMove(event.x, event.y)
+                        surface.requestRender()
+                        true
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        NativeRenderer.nativeTouchUp()
+                        surface.requestRender()
+                        true
+                    }
+                    else -> false
+                }
+            }
         }
     }
 

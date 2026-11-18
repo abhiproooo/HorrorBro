@@ -2,8 +2,9 @@
 
 ## Current Status
 * Phase 0: GitHub Actions / Gradle build scaffolding added.
-* Phase 1: Canvas, Compose UI shell and ThorVG GL test shape implemented.
-* Next Action: User tests the `app-debug.apk`; wait for "Phase 1 is working" before Phase 2.
+* Phase 1: Canvas, Compose UI shell and ThorVG GL setup implemented.
+* Phase 2: Landscape lock, C++ point path storage, JNI touch input, Add Point and Freehand tools implemented. The canvas renders the current path as a black round-capped/round-joined stroke with no fill.
+* Next Action: User tests the `app-debug.apk`; wait for "Phase 2 is working" before Phase 3.
 
 ## Architecture Rules (The Holy Trinity)
 1. **Canvas:** OpenGL ES via ThorVG (C++).

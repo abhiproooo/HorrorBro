@@ -50,4 +50,8 @@ object NativeRenderer {
     external fun nativeRender()
     external fun nativeRecenter()
     external fun nativeTrimMemory(level: Int)
+    external fun nativeSetTool(toolId: Int)
+    external fun nativeTouchDown(x: Float, y: Float)
+    external fun nativeTouchMove(x: Float, y: Float)
+    external fun nativeTouchUp()
 }
