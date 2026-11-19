@@ -2,9 +2,11 @@
 #include <android/log.h>
 #include <GLES3/gl3.h>
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
 #include <mutex>
+#include <utility>
 #include <vector>
 
 #include <thorvg.h>
@@ -33,6 +35,11 @@ enum class PathMode {
 
 constexpr float kStrokeWidth = 6.0f;
 constexpr float kFreehandMinDistance = 2.0f;
+constexpr float kFreehandStabilizer = 0.77f;
+constexpr float kFreehandSmoothingBlend = 0.25f;
+constexpr int kFreehandSmoothingPasses = 1;
+constexpr float kFreehandSimplifyTolerance = 1.0f;
+constexpr float kCurveTangentScale = 1.0f / 6.0f;
 constexpr float kTwoThirds = 2.0f / 3.0f;
 
 std::mutex gMutex;
@@ -47,6 +54,8 @@ float gCameraY = 0.0f;
 DrawTool gTool = DrawTool::AddPoint;
 PathMode gPathMode = PathMode::AddPoint;
 std::vector<Point> gPoints;
+Point gFreehandStable = {0.0f, 0.0f};
+bool gFreehandActive = false;
 bool gSceneDirty = true;
 
 void appendAddPointPath(tvg::Shape& shape, const std::vector<Point>& points)
@@ -67,16 +76,102 @@ void appendAddPointPath(tvg::Shape& shape, const std::vector<Point>& points)
         const Point& p3 = points[i + 2 < count ? i + 2 : i + 1];
 
         const Point c1 = {
-            p1.x + (p2.x - p0.x) / 6.0f,
-            p1.y + (p2.y - p0.y) / 6.0f
+            p1.x + (p2.x - p0.x) * kCurveTangentScale,
+            p1.y + (p2.y - p0.y) * kCurveTangentScale
         };
         const Point c2 = {
-            p2.x - (p3.x - p1.x) / 6.0f,
-            p2.y - (p3.y - p1.y) / 6.0f
+            p2.x - (p3.x - p1.x) * kCurveTangentScale,
+            p2.y - (p3.y - p1.y) * kCurveTangentScale
         };
 
         shape.cubicTo(c1.x, c1.y, c2.x, c2.y, p2.x, p2.y);
     }
+}
+
+void smoothFreehandPoints(std::vector<Point>& points)
+{
+    if (points.size() < 3) return;
+
+    for (int pass = 0; pass < kFreehandSmoothingPasses; ++pass) {
+        for (size_t i = 1; i + 1 < points.size(); ++i) {
+            const Point previous = points[i - 1];
+            const Point current = points[i];
+            const Point next = points[i + 1];
+            const Point average = {
+                (previous.x + current.x + next.x) / 3.0f,
+                (previous.y + current.y + next.y) / 3.0f
+            };
+
+            points[i].x = current.x + (average.x - current.x) * kFreehandSmoothingBlend;
+            points[i].y = current.y + (average.y - current.y) * kFreehandSmoothingBlend;
+        }
+    }
+}
+
+float pointSegmentDistanceSquared(const Point& point, const Point& start, const Point& end)
+{
+    const float dx = end.x - start.x;
+    const float dy = end.y - start.y;
+    const float lengthSquared = dx * dx + dy * dy;
+
+    float t = 0.0f;
+    if (lengthSquared > 1e-6f) {
+        t = ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared;
+        t = std::max(0.0f, std::min(1.0f, t));
+    }
+
+    const float nearestX = start.x + t * dx;
+    const float nearestY = start.y + t * dy;
+    const float offsetX = point.x - nearestX;
+    const float offsetY = point.y - nearestY;
+    return offsetX * offsetX + offsetY * offsetY;
+}
+
+void simplifyFreehandPoints(std::vector<Point>& points)
+{
+    const size_t count = points.size();
+    if (count < 3) return;
+
+    const float toleranceSquared = kFreehandSimplifyTolerance * kFreehandSimplifyTolerance;
+    std::vector<bool> keep(count, false);
+    keep.front() = true;
+    keep.back() = true;
+
+    std::vector<std::pair<size_t, size_t>> pending;
+    pending.emplace_back(0, count - 1);
+
+    while (!pending.empty()) {
+        const auto range = pending.back();
+        pending.pop_back();
+
+        const size_t first = range.first;
+        const size_t last = range.second;
+        if (last <= first + 1) continue;
+
+        float maxDistanceSquared = 0.0f;
+        size_t maxIndex = first;
+        for (size_t i = first + 1; i < last; ++i) {
+            const float distanceSquared =
+                pointSegmentDistanceSquared(points[i], points[first], points[last]);
+            if (distanceSquared > maxDistanceSquared) {
+                maxDistanceSquared = distanceSquared;
+                maxIndex = i;
+            }
+        }
+
+        if (maxDistanceSquared > toleranceSquared) {
+            keep[maxIndex] = true;
+            pending.emplace_back(first, maxIndex);
+            pending.emplace_back(maxIndex, last);
+        }
+    }
+
+    std::vector<Point> simplified;
+    simplified.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        if (keep[i]) simplified.push_back(points[i]);
+    }
+    points.swap(simplified);
 }
 
 void appendFreehandPath(tvg::Shape& shape, const std::vector<Point>& points)
@@ -172,8 +267,7 @@ Java_com_horrorbro_NativeRenderer_nativeInit(JNIEnv*, jobject)
         gEngineReady = true;
         LOGI("ThorVG GL engine initialized");
     } else if (gCanvas) {
-        gCanvas.release();
-        gCanvas = nullptr;
+        gCanvas.reset();
     }
 
     return JNI_TRUE;
@@ -264,53 +358,80 @@ Java_com_horrorbro_NativeRenderer_nativeSetTool(JNIEnv*, jobject, jint toolId)
             gTool = DrawTool::None;
             break;
     }
+
+    if (gTool != DrawTool::Freehand) {
+        gFreehandActive = false;
+    }
 }
 
-extern "C" JNIEXPORT void JNICALL
+extern "C" JNIEXPORT jboolean JNICALL
 Java_com_horrorbro_NativeRenderer_nativeTouchDown(JNIEnv*, jobject, jfloat x, jfloat y)
 {
     std::lock_guard<std::mutex> lock(gMutex);
 
-    if (gTool == DrawTool::None) return;
-    if (!std::isfinite(x) || !std::isfinite(y)) return;
+    if (gTool == DrawTool::None) return JNI_FALSE;
+    if (!std::isfinite(x) || !std::isfinite(y)) return JNI_FALSE;
 
     if (gTool == DrawTool::Freehand) {
         gPoints.clear();
         gPathMode = PathMode::Freehand;
+        gFreehandStable = {x, y};
+        gFreehandActive = true;
+        gPoints.push_back(gFreehandStable);
     } else {
         gPathMode = PathMode::AddPoint;
+        gFreehandActive = false;
+        gPoints.push_back({x, y});
     }
 
-    gPoints.push_back({x, y});
     gSceneDirty = true;
+    return JNI_TRUE;
 }
 
-extern "C" JNIEXPORT void JNICALL
+extern "C" JNIEXPORT jboolean JNICALL
 Java_com_horrorbro_NativeRenderer_nativeTouchMove(JNIEnv*, jobject, jfloat x, jfloat y)
 {
     std::lock_guard<std::mutex> lock(gMutex);
 
-    if (gTool != DrawTool::Freehand) return;
-    if (!std::isfinite(x) || !std::isfinite(y)) return;
+    if (gTool != DrawTool::Freehand || !gFreehandActive) return JNI_FALSE;
+    if (!std::isfinite(x) || !std::isfinite(y)) return JNI_FALSE;
 
     if (gPoints.empty()) {
         gPathMode = PathMode::Freehand;
-        gPoints.push_back({x, y});
+        gFreehandStable = {x, y};
+        gPoints.push_back(gFreehandStable);
         gSceneDirty = true;
-        return;
+        return JNI_TRUE;
     }
 
-    const Point& last = gPoints.back();
-    const float dx = x - last.x;
-    const float dy = y - last.y;
-    if (dx * dx + dy * dy < kFreehandMinDistance * kFreehandMinDistance) return;
+    const float alpha = 1.0f - kFreehandStabilizer;
+    gFreehandStable.x += (x - gFreehandStable.x) * alpha;
+    gFreehandStable.y += (y - gFreehandStable.y) * alpha;
 
-    gPoints.push_back({x, y});
+    const Point& last = gPoints.back();
+    const float dx = gFreehandStable.x - last.x;
+    const float dy = gFreehandStable.y - last.y;
+    if (dx * dx + dy * dy < kFreehandMinDistance * kFreehandMinDistance) {
+        return JNI_FALSE;
+    }
+
+    gPoints.push_back(gFreehandStable);
     gSceneDirty = true;
+    return JNI_TRUE;
 }
 
-extern "C" JNIEXPORT void JNICALL
+extern "C" JNIEXPORT jboolean JNICALL
 Java_com_horrorbro_NativeRenderer_nativeTouchUp(JNIEnv*, jobject)
 {
     std::lock_guard<std::mutex> lock(gMutex);
+
+    if (!gFreehandActive) return JNI_FALSE;
+    gFreehandActive = false;
+
+    if (gPoints.size() < 3) return JNI_FALSE;
+
+    smoothFreehandPoints(gPoints);
+    simplifyFreehandPoints(gPoints);
+    gSceneDirty = true;
+    return JNI_TRUE;
 }

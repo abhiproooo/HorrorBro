@@ -1,7 +1,5 @@
 package com.horrorbro.ui
 
-import android.opengl.GLSurfaceView
-import android.view.MotionEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -67,7 +65,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.horrorbro.NativeRenderer
-import com.horrorbro.ThorVGRenderer
+import com.horrorbro.createHorrorBroCanvas
 import kotlin.math.roundToInt
 
 private val MohoGreen = Color(0xFF4CAF50)
@@ -406,41 +404,15 @@ private fun ReservedTool(icon: ImageVector, label: String) {
 private fun CanvasArea(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val glView = remember(context) {
-        GLSurfaceView(context).apply {
-            setEGLContextClientVersion(3)
-            setEGLConfigChooser(8, 8, 8, 8, 16, 0)
-            preserveEGLContextOnPause = true
-            setRenderer(ThorVGRenderer())
-            renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
-            setOnTouchListener { view, event ->
-                val surface = view as GLSurfaceView
-                when (event.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> {
-                        NativeRenderer.nativeTouchDown(event.x, event.y)
-                        surface.requestRender()
-                        true
-                    }
-                    MotionEvent.ACTION_MOVE -> {
-                        NativeRenderer.nativeTouchMove(event.x, event.y)
-                        surface.requestRender()
-                        true
-                    }
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                        NativeRenderer.nativeTouchUp()
-                        surface.requestRender()
-                        true
-                    }
-                    else -> false
-                }
-            }
-        }
-    }
+    val glView = remember(context) { createHorrorBroCanvas(context) }
 
     DisposableEffect(lifecycleOwner, glView) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> glView.onResume()
+                Lifecycle.Event.ON_RESUME -> {
+                    glView.onResume()
+                    glView.requestRender()
+                }
                 Lifecycle.Event.ON_PAUSE -> glView.onPause()
                 else -> Unit
             }
@@ -455,8 +427,7 @@ private fun CanvasArea(modifier: Modifier = Modifier) {
     Box(modifier = modifier.background(Color.White)) {
         AndroidView(
             factory = { glView },
-            modifier = Modifier.fillMaxSize(),
-            update = { it.requestRender() }
+            modifier = Modifier.fillMaxSize()
         )
         Row(
             modifier = Modifier
