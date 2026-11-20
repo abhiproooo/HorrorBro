@@ -44,10 +44,16 @@ class MainActivity : ComponentActivity() {
         if (glView == null) {
             glView = GLSurfaceView(context).apply {
                 setEGLContextClientVersion(2)
+                var screenWidth = 0
+                var screenHeight = 0
                 setRenderer(object : GLSurfaceView.Renderer {
                     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) { initThorVG() }
-                    override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) { gl?.glViewport(0, 0, width, height) }
-                    override fun onDrawFrame(gl: GL10?) { drawFrame() }
+                    override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
+                        screenWidth = width
+                        screenHeight = height
+                        gl?.glViewport(0, 0, width, height)
+                    }
+                    override fun onDrawFrame(gl: GL10?) { drawFrame(screenWidth, screenHeight) }
                 })
                 renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
                 setOnTouchListener { v, event ->
