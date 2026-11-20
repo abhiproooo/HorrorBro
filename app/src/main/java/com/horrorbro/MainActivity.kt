@@ -28,7 +28,7 @@ class MainActivity : ComponentActivity() {
     private var glView: GLSurfaceView? = null
 
     external fun initThorVG()
-    external fun drawFrame()
+    external fun drawFrame(width: Int, height: Int)
     external fun onTouchDown(x: Float, y: Float)
     external fun onTouchMove(x: Float, y: Float)
     external fun setActiveTool(toolId: Int)
@@ -52,8 +52,8 @@ class MainActivity : ComponentActivity() {
                 renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
                 setOnTouchListener { v, event ->
                     when (event.action) {
-                        MotionEvent.ACTION_DOWN -> onTouchDown(event.x, event.y)
-                        MotionEvent.ACTION_MOVE -> onTouchMove(event.x, event.y)
+                        MotionEvent.ACTION_DOWN -> onTouchDown(event.x, v.size.height - event.y)
+                        MotionEvent.ACTION_MOVE -> onTouchMove(event.x, v.size.height - event.y)
                     }
                     v.performClick()
                     requestRender()

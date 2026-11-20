@@ -18,7 +18,7 @@ extern "C" {
 
 JNIEXPORT void JNICALL
 Java_com_horrorbro_MainActivity_initThorVG(JNIEnv *env, jobject /* this */) {
-    tvg::Initializer::init(tvg::CanvasEngine::Sw, 0);
+    tvg::Initializer::init(tvg::CanvasEngine::Gl, 0);
     LOGI("ThorVG Initialized");
 }
 
@@ -50,13 +50,13 @@ Java_com_horrorbro_MainActivity_onTouchMove(JNIEnv *env, jobject, jfloat x, jflo
 }
 
 JNIEXPORT void JNICALL
-Java_com_horrorbro_MainActivity_drawFrame(JNIEnv *env, jobject) {
+Java_com_horrorbro_MainActivity_drawFrame(JNIEnv *env, jobject, jint width, jint height) {
     glClearColor(1.0f, 1.0f, 1.0f, 1.0f); // White canvas
     glClear(GL_COLOR_BUFFER_BIT);
 
-    auto canvas = tvg::SwCanvas::gen();
+    auto glCanvas = tvg::GlCanvas::gen();
     uint32_t buffer[1000 * 1000]; 
-    canvas->target(buffer, 1000, 1000, 1000, tvg::ColorSpace::ARGB8888);
+    glCanvas->target(0, width, height, width);
 
     std::lock_guard<std::mutex> lock(pathMutex);
     
@@ -69,7 +69,7 @@ Java_com_horrorbro_MainActivity_drawFrame(JNIEnv *env, jobject) {
         if (autoStroke) shape->strokeFill(0, 0, 0, 255);
         else shape->strokeFill(0, 150, 136, 255); // Teal
         shape->strokeWidth(4.0f);
-        canvas->push(std::move(shape));
+        glCanvas->push(std::move(shape));
     }
 
     // Draw teal points
@@ -77,10 +77,10 @@ Java_com_horrorbro_MainActivity_drawFrame(JNIEnv *env, jobject) {
         auto dot = tvg::Shape::gen();
         dot->appendCircle(p.x, p.y, 4, 4);
         dot->fill(0, 150, 136, 255);
-        canvas->push(std::move(dot));
+        glCanvas->push(std::move(dot));
     }
 
-    canvas->draw();
-    canvas->sync();
+    glCanvas->draw();
+    glCanvas->sync();
 }
 }
