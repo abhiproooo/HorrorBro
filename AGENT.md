@@ -47,3 +47,6 @@ Do not move to the next phase until the user explicitly says "Phase complete, mo
 - **Phase 7: Layer Management & Reference Images** (Tracing, Opacity, Colour Picker, Save/Load).
 - **Phase 8: Timeline & Lip Sync** (Keyframes, Rhubarb integration).
 - **Phase 9: Video Export & Library** (MediaCodec rendering, Asset Library UI).
+
+## 8. CRITICAL RULE FOR FILE MODIFICATION
+You are strictly forbidden from just outputting code blocks in the chat window without actually writing them to the disk. When asked to fix a file, you MUST use your file-editing tools to overwrite the actual file (e.g., `native-lib.cpp` or `CMakeLists.txt`). If you do not use your tools to save the file, the user's Git commit will fail with "nothing to commit". Always physically write the changes to the workspace.

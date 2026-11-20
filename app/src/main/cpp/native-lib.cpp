@@ -1,6 +1,6 @@
 #include <jni.h>
 #include <android/log.h>
-#include <GLES2/gl2.h>
+#include <GLES3/gl3.h>
 #include <thorvg.h>
 #include <vector>
 #include <mutex>
