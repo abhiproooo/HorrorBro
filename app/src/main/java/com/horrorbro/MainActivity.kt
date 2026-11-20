@@ -1,184 +1,121 @@
 package com.horrorbro
 
-import android.content.Context
-import android.content.ContextWrapper
 import android.opengl.GLSurfaceView
 import android.os.Bundle
 import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import com.horrorbro.ui.HorrorBroTheme
-import com.horrorbro.ui.WorkspaceScreen
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
 class MainActivity : ComponentActivity() {
+    private var glView: GLSurfaceView? = null
 
-    internal var canvasView: GLSurfaceView? = null
+    external fun initThorVG()
+    external fun drawFrame()
+    external fun onTouchDown(x: Float, y: Float)
+    external fun onTouchMove(x: Float, y: Float)
+    external fun setActiveTool(toolId: Int)
+    external fun setAutoStroke(enabled: Boolean)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        instance = this
-        setContent {
-            HorrorBroTheme {
-                WorkspaceScreen()
-            }
-        }
-    }
-
-    override fun onDestroy() {
-        canvasView = null
-        if (instance === this) {
-            instance = null
-        }
-        super.onDestroy()
-    }
-
-    override fun onTrimMemory(level: Int) {
-        super.onTrimMemory(level)
-        nativeTrimMemory(level)
-    }
-
-    external fun nativeInit(): Boolean
-    external fun nativeResize(width: Int, height: Int)
-    external fun nativeRender()
-    external fun nativeRecenter()
-    external fun nativeTrimMemory(level: Int)
-    external fun setActiveTool(toolId: Int)
-    external fun setAutoStroke(enabled: Boolean)
-    external fun setStrokeWidth(width: Float)
-    external fun onTouchDown(x: Float, y: Float): Boolean
-    external fun onTouchMove(x: Float, y: Float): Boolean
-    external fun onTouchUp(): Boolean
-
-    companion object {
-        @Volatile
-        internal var instance: MainActivity? = null
-
-        init {
-            System.loadLibrary("horrorbro")
-        }
-    }
-}
-
-class ThorVGRenderer : GLSurfaceView.Renderer {
-    override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
-        MainActivity.instance?.nativeInit()
-    }
-
-    override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
-        MainActivity.instance?.nativeResize(width, height)
-    }
-
-    override fun onDrawFrame(gl: GL10?) {
-        MainActivity.instance?.nativeRender()
-    }
-}
-
-private fun Context.findMainActivity(): MainActivity? {
-    var current: Context? = this
-    while (current is ContextWrapper) {
-        if (current is MainActivity) return current
-        current = current.baseContext
-    }
-    return current as? MainActivity
-}
-
-fun createHorrorBroCanvas(context: Context): GLSurfaceView {
-    val view = GLSurfaceView(context)
-    val activity = context.findMainActivity()
-
-    view.setEGLContextClientVersion(3)
-    view.setEGLConfigChooser(8, 8, 8, 8, 16, 0)
-    view.preserveEGLContextOnPause = true
-    view.setRenderer(ThorVGRenderer())
-    view.renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
-
-    activity?.canvasView = view
-
-    view.setOnTouchListener { surface, event ->
-        val target = activity ?: MainActivity.instance ?: return@setOnTouchListener false
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                target.onTouchDown(event.x, event.y)
-                surface.requestRender()
-                true
-            }
-            MotionEvent.ACTION_MOVE -> {
-                for (index in 0 until event.historySize) {
-                    target.onTouchMove(
-                        event.getHistoricalX(index),
-                        event.getHistoricalY(index)
-                    )
-                }
-                target.onTouchMove(event.x, event.y)
-                surface.requestRender()
-                true
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                target.onTouchUp()
-                surface.requestRender()
-                true
-            }
-            else -> false
-        }
-    }
-    return view
-}
-
-object NativeRenderer {
-    init {
         System.loadLibrary("horrorbro")
+        setContent { HorrorBroApp() }
     }
 
-    fun nativeInit(): Boolean = MainActivity.instance?.nativeInit() ?: false
-
-    fun nativeResize(width: Int, height: Int) {
-        MainActivity.instance?.nativeResize(width, height)
+    fun getGLView(context: android.content.Context): GLSurfaceView {
+        if (glView == null) {
+            glView = GLSurfaceView(context).apply {
+                setEGLContextClientVersion(2)
+                setRenderer(object : GLSurfaceView.Renderer {
+                    override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) { initThorVG() }
+                    override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) { gl?.glViewport(0, 0, width, height) }
+                    override fun onDrawFrame(gl: GL10?) { drawFrame() }
+                })
+                renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
+                setOnTouchListener { v, event ->
+                    when (event.action) {
+                        MotionEvent.ACTION_DOWN -> onTouchDown(event.x, event.y)
+                        MotionEvent.ACTION_MOVE -> onTouchMove(event.x, event.y)
+                    }
+                    v.performClick()
+                    requestRender()
+                    true
+                }
+            }
+        }
+        return glView!!
     }
+}
 
-    fun nativeRender() {
-        MainActivity.instance?.nativeRender()
-    }
+@Composable
+fun HorrorBroApp() {
+    var activeTool by remember { mutableStateOf(0) } // 0=None, 1=AddPoint, 2=Freehand
+    var autoStroke by remember { mutableStateOf(true) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val activity = context as MainActivity
 
-    fun nativeRecenter() {
-        MainActivity.instance?.let {
-            it.nativeRecenter()
-            it.canvasView?.requestRender()
+    // Sync state to C++
+    LaunchedEffect(activeTool) { activity.setActiveTool(activeTool) }
+    LaunchedEffect(autoStroke) { activity.setAutoStroke(autoStroke) }
+
+    Row(modifier = Modifier.fillMaxSize().background(Color(0xFF2B2B2B))) {
+        Column(modifier = Modifier.width(64.dp).fillMaxHeight().background(Color(0xFF1E1E1E)), horizontalAlignment = Alignment.CenterHorizontally) {
+            Spacer(modifier = Modifier.height(16.dp))
+            ToolButton(1, activeTool, { activeTool = it }, Icons.Filled.Add)
+            ToolButton(2, activeTool, { activeTool = it }, Icons.Filled.Edit)
+        }
+
+        Column(modifier = Modifier.weight(1f)) {
+            Row(modifier = Modifier.fillMaxWidth().height(50.dp).background(Color(0xFF1E1E1E)), verticalAlignment = Alignment.CenterVertically) {
+                Text("  ", color = Color.Gray)
+                Checkbox(checked = autoStroke, onCheckedChange = { autoStroke = it })
+                Text("Auto-stroke", color = Color.White)
+                Spacer(modifier = Modifier.weight(1f))
+                IconButton(onClick = { }) { Icon(Icons.Filled.Menu, "Undo", tint = Color.White) }
+                IconButton(onClick = { }) { Icon(Icons.Filled.Save, "Save", tint = Color.White) }
+            }
+
+            Box(modifier = Modifier.weight(1f)) {
+                AndroidView(factory = { activity.getGLView(it) }, modifier = Modifier.fillMaxSize())
+                IconButton(onClick = { }, modifier = Modifier.align(Alignment.Center), enabled = false) {
+                    Icon(Icons.Filled.Add, contentDescription = "Center", tint = Color.Gray.copy(alpha = 0.3f))
+                }
+            }
+        }
+
+        Column(modifier = Modifier.width(200.dp).fillMaxHeight().background(Color(0xFF1E1E1E))) {
+            Text("Style", color = Color.White, modifier = Modifier.padding(8.dp))
+            Box(modifier = Modifier.fillMaxWidth().height(100.dp).background(Color(0xFF333333)))
+            Text("Layers", color = Color.White, modifier = Modifier.padding(8.dp))
+            Box(modifier = Modifier.fillMaxWidth().height(200.dp).background(Color(0xFF333333)))
         }
     }
+}
 
-    fun nativeTrimMemory(level: Int) {
-        MainActivity.instance?.nativeTrimMemory(level)
-    }
-
-    fun setActiveTool(toolId: Int) {
-        MainActivity.instance?.let {
-            it.setActiveTool(toolId)
-            it.canvasView?.requestRender()
-        }
-    }
-
-    fun setAutoStroke(enabled: Boolean) {
-        MainActivity.instance?.let {
-            it.setAutoStroke(enabled)
-            it.canvasView?.requestRender()
-        }
-    }
-
-    fun setStrokeWidth(width: Float) {
-        MainActivity.instance?.let {
-            it.setStrokeWidth(width)
-            it.canvasView?.requestRender()
-        }
-    }
-
-    fun onTouchDown(x: Float, y: Float): Boolean =
-        MainActivity.instance?.onTouchDown(x, y) ?: false
-
-    fun onTouchMove(x: Float, y: Float): Boolean =
-        MainActivity.instance?.onTouchMove(x, y) ?: false
-
-    fun onTouchUp(): Boolean =
-        MainActivity.instance?.onTouchUp() ?: false
+@Composable
+fun ToolButton(id: Int, activeTool: Int, onClick: (Int) -> Unit, icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    Button(
+        onClick = { onClick(id) },
+        colors = ButtonDefaults.buttonColors(containerColor = if (id == activeTool) Color(0xFF4CAF50) else Color(0xFF333333)),
+        modifier = Modifier.padding(4.dp).size(48.dp),
+        contentPadding = PaddingValues(0.dp)
+    ) { Icon(icon, contentDescription = null) }
 }
