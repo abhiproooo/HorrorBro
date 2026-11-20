@@ -109,7 +109,7 @@ private enum class EditorTool(
 ) {
     AddPoint("Add Point", ToolGroup.Draw, Icons.Default.Add, 0),
     Freehand("Freehand", ToolGroup.Draw, Icons.Default.Edit, 1),
-    Weld("Weld", ToolGroup.Draw, Icons.Default.Link, -1),
+    Weld("Weld", ToolGroup.Draw, Icons.Default.Link, 2),
     Bone("Bone", ToolGroup.Draw, Icons.Default.Polyline, -1),
     Fill("Fill", ToolGroup.Fill, Icons.Default.FormatColorFill, -1),
     Stroke("Stroke", ToolGroup.Fill, Icons.Default.Brush, -1),
@@ -121,10 +121,19 @@ fun WorkspaceScreen() {
     var autoWeld by rememberSaveable { mutableStateOf(false) }
     var autoFill by rememberSaveable { mutableStateOf(true) }
     var autoStroke by rememberSaveable { mutableStateOf(false) }
+    var strokeWidth by rememberSaveable { mutableStateOf(6f) }
     var selectedTool by remember { mutableStateOf(EditorTool.AddPoint) }
 
     LaunchedEffect(selectedTool) {
-        NativeRenderer.nativeSetTool(selectedTool.nativeId)
+        NativeRenderer.setActiveTool(selectedTool.nativeId)
+    }
+
+    LaunchedEffect(autoStroke) {
+        NativeRenderer.setAutoStroke(autoStroke)
+    }
+
+    LaunchedEffect(strokeWidth) {
+        NativeRenderer.setStrokeWidth(strokeWidth)
     }
 
     Column(
@@ -155,6 +164,8 @@ fun WorkspaceScreen() {
                     .fillMaxHeight()
             )
             RightPanel(
+                strokeWidth = strokeWidth,
+                onStrokeWidthChange = { strokeWidth = it },
                 modifier = Modifier
                     .width(148.dp)
                     .fillMaxHeight()
@@ -467,9 +478,11 @@ private fun CanvasArea(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun RightPanel(modifier: Modifier = Modifier) {
-    var strokeWidth by rememberSaveable { mutableStateOf(6f) }
-
+private fun RightPanel(
+    strokeWidth: Float,
+    onStrokeWidthChange: (Float) -> Unit,
+    modifier: Modifier = Modifier
+) {
     Column(
         modifier = modifier
             .background(PanelDark)
@@ -490,7 +503,7 @@ private fun RightPanel(modifier: Modifier = Modifier) {
         )
         Slider(
             value = strokeWidth,
-            onValueChange = { strokeWidth = it },
+            onValueChange = onStrokeWidthChange,
             valueRange = 1f..24f,
             modifier = Modifier
                 .fillMaxWidth()

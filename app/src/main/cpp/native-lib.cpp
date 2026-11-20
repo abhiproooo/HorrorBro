@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <utility>
@@ -25,7 +26,8 @@ struct Point {
 enum class DrawTool {
     None,
     AddPoint,
-    Freehand
+    Freehand,
+    Weld
 };
 
 enum class PathMode {
@@ -33,7 +35,12 @@ enum class PathMode {
     Freehand
 };
 
-constexpr float kStrokeWidth = 6.0f;
+constexpr float kPointRadius = 4.0f;
+constexpr float kPreviewStrokeWidth = 2.0f;
+constexpr float kDefaultStrokeWidth = 6.0f;
+constexpr uint8_t kTealR = 0;
+constexpr uint8_t kTealG = 150;
+constexpr uint8_t kTealB = 136;
 constexpr float kFreehandMinDistance = 2.0f;
 constexpr float kFreehandStabilizer = 0.77f;
 constexpr float kFreehandSmoothingBlend = 0.25f;
@@ -56,6 +63,8 @@ PathMode gPathMode = PathMode::AddPoint;
 std::vector<Point> gPoints;
 Point gFreehandStable = {0.0f, 0.0f};
 bool gFreehandActive = false;
+bool gAutoStroke = false;
+float gStrokeWidth = kDefaultStrokeWidth;
 bool gSceneDirty = true;
 
 void appendAddPointPath(tvg::Shape& shape, const std::vector<Point>& points)
@@ -231,18 +240,33 @@ void rebuildSceneLocked()
     }
 
     if (!gPoints.empty()) {
-        auto stroke = tvg::Shape::gen();
-        if (stroke) {
+        auto path = tvg::Shape::gen();
+        if (path) {
             if (gPathMode == PathMode::Freehand) {
-                appendFreehandPath(*stroke, gPoints);
+                appendFreehandPath(*path, gPoints);
             } else {
-                appendAddPointPath(*stroke, gPoints);
+                appendAddPointPath(*path, gPoints);
             }
-            stroke->stroke(kStrokeWidth);
-            stroke->stroke(0, 0, 0);
-            stroke->stroke(tvg::StrokeCap::Round);
-            stroke->stroke(tvg::StrokeJoin::Round);
-            gCanvas->push(std::move(stroke));
+
+            if (gAutoStroke) {
+                path->stroke(std::max(gStrokeWidth, 0.5f));
+                path->stroke(0, 0, 0);
+            } else {
+                path->stroke(kPreviewStrokeWidth);
+                path->stroke(kTealR, kTealG, kTealB);
+            }
+            path->stroke(tvg::StrokeCap::Round);
+            path->stroke(tvg::StrokeJoin::Round);
+            gCanvas->push(std::move(path));
+        }
+
+        auto points = tvg::Shape::gen();
+        if (points) {
+            for (const Point& point : gPoints) {
+                points->appendCircle(point.x, point.y, kPointRadius, kPointRadius);
+            }
+            points->fill(kTealR, kTealG, kTealB);
+            gCanvas->push(std::move(points));
         }
     }
 
@@ -255,7 +279,7 @@ void rebuildSceneLocked()
 }  // namespace
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_horrorbro_NativeRenderer_nativeInit(JNIEnv*, jobject)
+Java_com_horrorbro_MainActivity_nativeInit(JNIEnv*, jobject)
 {
     std::lock_guard<std::mutex> lock(gMutex);
 
@@ -274,7 +298,7 @@ Java_com_horrorbro_NativeRenderer_nativeInit(JNIEnv*, jobject)
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_horrorbro_NativeRenderer_nativeResize(JNIEnv*, jobject, jint width, jint height)
+Java_com_horrorbro_MainActivity_nativeResize(JNIEnv*, jobject, jint width, jint height)
 {
     std::lock_guard<std::mutex> lock(gMutex);
 
@@ -304,7 +328,7 @@ Java_com_horrorbro_NativeRenderer_nativeResize(JNIEnv*, jobject, jint width, jin
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_horrorbro_NativeRenderer_nativeRender(JNIEnv*, jobject)
+Java_com_horrorbro_MainActivity_nativeRender(JNIEnv*, jobject)
 {
     std::lock_guard<std::mutex> lock(gMutex);
 
@@ -326,7 +350,7 @@ Java_com_horrorbro_NativeRenderer_nativeRender(JNIEnv*, jobject)
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_horrorbro_NativeRenderer_nativeRecenter(JNIEnv*, jobject)
+Java_com_horrorbro_MainActivity_nativeRecenter(JNIEnv*, jobject)
 {
     std::lock_guard<std::mutex> lock(gMutex);
 
@@ -335,7 +359,7 @@ Java_com_horrorbro_NativeRenderer_nativeRecenter(JNIEnv*, jobject)
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_horrorbro_NativeRenderer_nativeTrimMemory(JNIEnv*, jobject, jint level)
+Java_com_horrorbro_MainActivity_nativeTrimMemory(JNIEnv*, jobject, jint level)
 {
     std::lock_guard<std::mutex> lock(gMutex);
 
@@ -343,7 +367,7 @@ Java_com_horrorbro_NativeRenderer_nativeTrimMemory(JNIEnv*, jobject, jint level)
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_horrorbro_NativeRenderer_nativeSetTool(JNIEnv*, jobject, jint toolId)
+Java_com_horrorbro_MainActivity_setActiveTool(JNIEnv*, jobject, jint toolId)
 {
     std::lock_guard<std::mutex> lock(gMutex);
 
@@ -353,6 +377,9 @@ Java_com_horrorbro_NativeRenderer_nativeSetTool(JNIEnv*, jobject, jint toolId)
             break;
         case 1:
             gTool = DrawTool::Freehand;
+            break;
+        case 2:
+            gTool = DrawTool::Weld;
             break;
         default:
             gTool = DrawTool::None;
@@ -364,8 +391,28 @@ Java_com_horrorbro_NativeRenderer_nativeSetTool(JNIEnv*, jobject, jint toolId)
     }
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_com_horrorbro_MainActivity_setAutoStroke(JNIEnv*, jobject, jboolean enabled)
+{
+    std::lock_guard<std::mutex> lock(gMutex);
+
+    gAutoStroke = (enabled == JNI_TRUE);
+    gSceneDirty = true;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_horrorbro_MainActivity_setStrokeWidth(JNIEnv*, jobject, jfloat width)
+{
+    std::lock_guard<std::mutex> lock(gMutex);
+
+    if (!std::isfinite(width)) return;
+
+    gStrokeWidth = std::max(0.5f, std::min(width, 64.0f));
+    gSceneDirty = true;
+}
+
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_horrorbro_NativeRenderer_nativeTouchDown(JNIEnv*, jobject, jfloat x, jfloat y)
+Java_com_horrorbro_MainActivity_onTouchDown(JNIEnv*, jobject, jfloat x, jfloat y)
 {
     std::lock_guard<std::mutex> lock(gMutex);
 
@@ -389,7 +436,7 @@ Java_com_horrorbro_NativeRenderer_nativeTouchDown(JNIEnv*, jobject, jfloat x, jf
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_horrorbro_NativeRenderer_nativeTouchMove(JNIEnv*, jobject, jfloat x, jfloat y)
+Java_com_horrorbro_MainActivity_onTouchMove(JNIEnv*, jobject, jfloat x, jfloat y)
 {
     std::lock_guard<std::mutex> lock(gMutex);
 
@@ -421,7 +468,7 @@ Java_com_horrorbro_NativeRenderer_nativeTouchMove(JNIEnv*, jobject, jfloat x, jf
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_horrorbro_NativeRenderer_nativeTouchUp(JNIEnv*, jobject)
+Java_com_horrorbro_MainActivity_onTouchUp(JNIEnv*, jobject)
 {
     std::lock_guard<std::mutex> lock(gMutex);
 
